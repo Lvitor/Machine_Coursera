@@ -1,0 +1,131 @@
+---
+title: "Practical Machine Learning"
+author: "Leonardo Cavalcanti"
+date: "Saturday, December 20, 2014"
+output: html_document
+---
+
+This code is for load library use in this work.
+
+```{r}
+library("RCurl")
+library("caret")
+```
+
+###Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here:[http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har)
+
+#Summary Executive
+
+The main propose of this project it create algorithm capable to predict what kind of physical  exercise a person are doing. We are try to correct predict 6 type of physical exercise (sitting-down, standing-up, standing, walking, and sitting).
+
+For this project we are going to split training dataset in two dataset, one for train the model and other for calculate accuracy and validation of our model, since our test dataset dont have the *right answer* for check what your model predict.
+
+We create two model, one use rpart (**R**ecursive **PART**itioning) method and other using Random Forest, both using Decision Tree as basic part of methodology of this two algorithm.
+
+
+## 1 - Getting and Cleaning Data
+
+We download the training and testing dataset directly from url and load them in two variable call "train" and "test". The default paraments of read.csv function does not consider blank cell as NA, but this project we will assume as NA a blank cell.
+
+```{r}
+if(!file.exists("./data")){
+  dir.create("./data")}
+
+if(!file.exists("./data/train.csv")){
+  fileurl = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv";
+ download.file(fileurl, "./data/train.csv")}
+
+if(!file.exists("./data/test.csv")){
+  fileurl = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv";
+  download.file(fileurl, "./data/test.csv")}
+
+train = read.csv("./data/train.csv", header = T,na.strings = c("", "NA")) 
+test = read.csv("./data/test.csv", header = T,na.strings = c("", "NA"))
+```
+
+First step of cleaning the data we check our test dataset if have any column with na.If so we can eliminate from training dataset.
+```{r}
+features = names(test[,colSums(is.na(test)) == 0])
+features = features[1:NROW(features)-1]
+train = train[,c(features,"classe")]
+test = test[,c(features,"problem_id")]
+```
+
+For training purpose it is important have parameters with of a lot of *variation*. So we can throw away parameters with near zero variance with nearZeroVar function
+
+```{r}
+nzv = nearZeroVar(train)
+train = train[,-nzv]
+```
+
+The name of a user and time when his/her perform a physical exercise it's not relevant to predict what kind of exercise are she/he doing.
+
+```{r}
+remove = grep("X|user_name|cvtd_timestamp|new_window|num_window", names(train))
+train = train[, -remove]
+```
+
+Another step it is rip off columns which have a high correlation with each other. We consider 90% or more of correlation with high correlate. This step also reduce our dataset in more 7 columns.
+
+```{r}
+highCorrCols = findCorrelation(abs(cor(train[,-55])),0.90)
+train = train[,-highCorrCols]
+```
+
+## 2 - Dataset for Cross-Validation
+For estimate our out of sample error, we have to performance with a dataset that wasn't used for training our model. We separated 20% our dataset for this propose. In caret package has a function called "createDataPartition" for split this training dataset .
+
+```{r}
+index = createDataPartition(y = train$classe, p = 0.2, list = FALSE)
+train_validation = train[index,]
+train_data = train[-index,]
+```
+
+## 3 - Creating our models
+As we said previously, we try two model for this project (rpart and Random Forest).
+
+### Model using rpart
+
+```{r}
+set.seed(1234)
+model1 = train(classe ~ ., data = train_data, method = "rpart")
+
+```
+
+Let´s to using cross-validation dataset for estimate erro out of sample.
+
+```{r}
+pred1 = predict(model1,train_validation)
+confus1 = confusionMatrix(train_validation$classe, pred1)
+confus1$overall[1]
+```
+As we can see this model has a poor performance, with a accuracy only 53%. Our out of sample error will be approximate 47%.
+
+This model has a so poor performance that you shouldn't consider this model for apply our test dataset.
+
+### Model using Random Forest
+
+```{r}
+model2 = train(classe ~.,data=train_data, method = "rf", 
+               trControl=trainControl(method = "cv"),ntree=50)
+```
+
+Let´s to using cross-validation dataset for estimate erro out of sample.
+
+```{r}
+pred2 = predict(model2,train_validation)
+confus2 = confusionMatrix(train_validation$classe, pred2)
+confus2$overall[1]
+```
+
+This model has a significant improved from previous model. We achieve 99.87% of accuracy and a out of sample error of only 0.127%. It's important to mention that this model is more compute-intensive for calculate. Usually we alway have a trade off between accuracy and compute-intensive.
+
+## 4 - Conclusion
+
+Now, we are going to predict use dataset test.
+```{r}
+predict(model2,test)
+```
+This is our model answer with a estimative error of 0.13%.
